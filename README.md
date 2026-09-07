@@ -34,6 +34,13 @@ Clicking the button starts reading the page's `<article>` content from the
 top. Clicking again pauses; clicking once more resumes. A stop button appears
 next to it while reading or paused. Pressing <kbd>Escape</kbd> also stops.
 
+"Pause" doesn't use the browser's native `speechSynthesis.pause()` — that API
+is unreliable across engines (e.g. a no-op on Firefox with `espeak-ng` via
+`speech-dispatcher` on Linux, where it flips state but audio keeps playing).
+Instead, pausing cancels playback and remembers which block was interrupted;
+resuming re-speaks that block from its start. This trades exact-word resume
+precision for working consistently everywhere.
+
 ## Configuration
 
 | Option  | Type   | Default | Description                                               |
@@ -61,13 +68,20 @@ the URL.
 ## Known limitations (v1)
 
 - No voice picker — the browser's default voice for the page's language is used.
-- No word/sentence highlighting while reading.
-- Pause/resume relies on the browser's native `speechSynthesis.pause()`/`.resume()`,
-  which is well-supported in Chrome/Edge/Safari but historically flaky in
-  Firefox — if it gets stuck, stop and start again.
+- No word/sentence highlighting while reading, and no click-to-seek to a
+  specific word.
+- Resuming from pause restarts the current block from its beginning, not the
+  exact word (see above).
 - The button hides itself entirely in browsers without `window.speechSynthesis`.
+- On Linux, `speechSynthesis` depends on `speech-dispatcher` having a working
+  output module configured (e.g. `espeak-ng`) — some distros ship it with
+  every module commented out by default. If the button does nothing, check
+  `/etc/speech-dispatcher/speechd.conf` for an active `AddModule`/`DefaultModule`
+  line, and fully restart the browser after fixing it (it may cache a stale
+  connection from before the fix).
 
-Both a voice picker and read-along highlighting are natural v2 additions.
+A voice picker and read-along word highlighting (with click-to-seek) are
+natural v2 additions.
 
 ## License
 

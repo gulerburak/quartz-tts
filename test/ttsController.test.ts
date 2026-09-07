@@ -103,17 +103,38 @@ describe("attachTTS", () => {
     expect(fakeSynthesis.spoken[0]?.lang).toBe("de-DE");
   });
 
-  it("pauses and resumes on repeated toggle clicks without re-speaking", () => {
+  it("pauses by cancelling (not native pause/resume) and resumes from the paused chunk", () => {
+    // Native speechSynthesis.pause()/resume() is unreliable (e.g. a no-op on
+    // Firefox with espeak-ng/speech-dispatcher) — pause must cancel outright
+    // and resume must re-speak from the chunk that was interrupted.
     attach();
-    toggle().click(); // play
+    toggle().click(); // play -> queues "First." and "Second."
+    fakeSynthesis.spoken[0]?.dispatch("start"); // "First." is the one actually playing
+    fakeSynthesis.cancel.mockClear(); // speakFrom() itself cancels defensively on every call
+
     toggle().click(); // pause
-    expect(fakeSynthesis.pause).toHaveBeenCalledTimes(1);
+    expect(fakeSynthesis.cancel).toHaveBeenCalledTimes(1);
+    expect(fakeSynthesis.pause).not.toHaveBeenCalled();
     expect(wrapper().dataset.ttsState).toBe("paused");
 
+    const spokenBeforeResume = fakeSynthesis.spoken.length;
     toggle().click(); // resume
-    expect(fakeSynthesis.resume).toHaveBeenCalledTimes(1);
+    expect(fakeSynthesis.resume).not.toHaveBeenCalled();
     expect(wrapper().dataset.ttsState).toBe("playing");
-    expect(fakeSynthesis.speak).toHaveBeenCalledTimes(2);
+    const resumedTexts = fakeSynthesis.spoken.slice(spokenBeforeResume).map((u) => u.text);
+    expect(resumedTexts).toEqual(["First.", "Second."]); // restarts the interrupted chunk
+  });
+
+  it("pausing during the last chunk isn't mistaken for finishing", () => {
+    attach();
+    toggle().click();
+    const last = fakeSynthesis.spoken[fakeSynthesis.spoken.length - 1];
+    last?.dispatch("start");
+
+    toggle().click(); // pause cancels the last utterance...
+    last?.dispatch("error"); // ...which fires "error" in real browsers
+
+    expect(wrapper().dataset.ttsState).toBe("paused"); // must not flip to idle
   });
 
   it("stops and resets to idle via the stop button", () => {

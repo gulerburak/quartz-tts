@@ -27,6 +27,16 @@ export function attachTTS(): (() => void) | undefined {
 
   let state: TTSState = "idle";
   let sessionId = 0;
+  // Native speechSynthesis.pause()/resume() is unreliable across browsers
+  // (notably a no-op on Firefox with some engines, e.g. espeak-ng via
+  // speech-dispatcher on Linux — it flips the API's internal flag but never
+  // actually pauses audio). So "pause" is emulated instead: cancel outright
+  // and remember which chunk was playing; "resume" re-speaks starting from
+  // that chunk. This only depends on cancel()/speak(), which are reliable
+  // everywhere, at the cost of restarting the current chunk from its
+  // beginning rather than the exact word.
+  let chunks: string[] = [];
+  let currentChunkIndex = 0;
 
   const labels = {
     play: toggleBtn.dataset.labelPlay ?? toggleBtn.getAttribute("aria-label") ?? "Play",
@@ -46,36 +56,40 @@ export function attachTTS(): (() => void) | undefined {
   function stop() {
     window.speechSynthesis.cancel();
     state = "idle";
+    currentChunkIndex = 0;
     render();
   }
 
-  function speak() {
-    const article =
-      document.querySelector(".center > article") ?? document.querySelector("article");
-    if (!article) return;
-    const chunks = getReadableChunks(article);
-    if (chunks.length === 0) return;
-
+  function speakFrom(startIndex: number) {
     window.speechSynthesis.cancel();
     const mySession = ++sessionId;
     const rate = Number(wrapper!.dataset.ttsRate ?? "1") || 1;
     const pitch = Number(wrapper!.dataset.ttsPitch ?? "1") || 1;
     const lang = document.documentElement.lang || undefined;
 
-    chunks.forEach((text, i) => {
+    chunks.slice(startIndex).forEach((text, relIndex) => {
+      const absIndex = startIndex + relIndex;
       const utter = new SpeechSynthesisUtterance(text);
       utter.rate = rate;
       utter.pitch = pitch;
       if (lang) utter.lang = lang;
-      if (i === chunks.length - 1) {
+      utter.addEventListener("start", () => {
+        if (mySession === sessionId) currentChunkIndex = absIndex;
+      });
+      if (absIndex === chunks.length - 1) {
         const finish = () => {
-          if (mySession === sessionId) {
+          // A pause cancels the in-flight utterance too, which fires this
+          // same "error" event — skip the idle reset when that's why we're
+          // here, so pausing on the last chunk doesn't look like it finished.
+          if (mySession === sessionId && state !== "paused") {
             state = "idle";
+            currentChunkIndex = 0;
             render();
           }
         };
         // "error" fires for our own cancel()-triggered interruptions too;
-        // that's fine, it just means we reset to idle either way.
+        // that's fine, it just means we reset to idle either way (unless
+        // we're pausing, see above).
         utter.addEventListener("end", finish);
         utter.addEventListener("error", finish);
       }
@@ -86,17 +100,25 @@ export function attachTTS(): (() => void) | undefined {
     render();
   }
 
+  function speak() {
+    const article =
+      document.querySelector(".center > article") ?? document.querySelector("article");
+    if (!article) return;
+    chunks = getReadableChunks(article);
+    if (chunks.length === 0) return;
+    currentChunkIndex = 0;
+    speakFrom(0);
+  }
+
   const onToggle = () => {
     if (state === "idle") {
       speak();
     } else if (state === "playing") {
-      window.speechSynthesis.pause();
+      window.speechSynthesis.cancel();
       state = "paused";
       render();
     } else {
-      window.speechSynthesis.resume();
-      state = "playing";
-      render();
+      speakFrom(currentChunkIndex);
     }
   };
   const onStop = () => stop();

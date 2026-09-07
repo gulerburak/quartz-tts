@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Pause/resume no longer relies on the native `speechSynthesis.pause()`/`.resume()`,
+  which is a no-op on some engines (e.g. Firefox + espeak-ng/speech-dispatcher
+  on Linux). Pausing now cancels and remembers the interrupted block; resuming
+  re-speaks that block from its start.
+
 ### Added
 
 - Initial release: a toolbar button that reads the current page's article
