@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The voice-picker menu is now moved to `<body>` with fixed positioning
+  while open, instead of being absolutely positioned inside the toolbar —
+  a toolbar/sidebar container that clips overflow or stacks above it would
+  otherwise render the menu invisibly.
 - Voice selection now automatically prefers higher-quality voices for the
   page's language — network/cloud voices (usually neural) over local ones,
   and known robotic local engines (`espeak`, `pico`, `festival`) are avoided

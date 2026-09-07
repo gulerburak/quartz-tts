@@ -88,11 +88,10 @@
 }
 
 .tts-voice-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 10;
-  margin-top: 0.25rem;
+  // Actual position/top/left are set inline in JS once open, after the menu
+  // is moved to <body> — these are just an inert fallback.
+  position: fixed;
+  z-index: 10000;
   min-width: 12rem;
   max-height: 16rem;
   overflow-y: auto;

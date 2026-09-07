@@ -324,11 +324,21 @@ export function attachTTS(): (() => void) | undefined {
   }
 
   const onDocClickCloseMenu = (e: Event) => {
-    if (!wrapper!.contains(e.target as Node)) closeVoiceMenu();
+    const target = e.target as Node;
+    if (!wrapper!.contains(target) && !voiceMenu?.contains(target)) closeVoiceMenu();
   };
   function openVoiceMenu() {
     if (!voiceMenu || !voiceBtn) return;
     renderVoiceMenu();
+    // Moved to <body> with fixed positioning rather than left as an
+    // absolutely-positioned child of the toolbar: a toolbar/sidebar
+    // container clipping overflow (common in this kind of layout) or
+    // stacking above it would otherwise render the menu, just invisibly.
+    document.body.appendChild(voiceMenu);
+    const rect = voiceBtn.getBoundingClientRect();
+    voiceMenu.style.position = "fixed";
+    voiceMenu.style.top = `${rect.bottom + 4}px`;
+    voiceMenu.style.left = `${rect.left}px`;
     voiceMenu.hidden = false;
     voiceBtn.setAttribute("aria-expanded", "true");
     document.addEventListener("click", onDocClickCloseMenu, { capture: true });
@@ -337,6 +347,7 @@ export function attachTTS(): (() => void) | undefined {
     if (!voiceMenu || !voiceBtn) return;
     voiceMenu.hidden = true;
     voiceBtn.setAttribute("aria-expanded", "false");
+    wrapper!.appendChild(voiceMenu); // restore to its normal place in the toolbar
     document.removeEventListener("click", onDocClickCloseMenu, { capture: true });
   }
   const onVoiceToggle = () => {
@@ -384,6 +395,10 @@ export function attachTTS(): (() => void) | undefined {
     window.speechSynthesis.removeEventListener("voiceschanged", refreshVoices);
     clearHighlightTimers();
     unwrapWords();
+    // If the menu was left open (and thus moved to <body>) when this page
+    // is torn down, it won't be cleaned up by the normal DOM swap — remove
+    // it explicitly rather than leaking a floating, orphaned menu.
+    voiceMenu?.remove();
   };
 }
 
