@@ -1,7 +1,10 @@
 export default {
   components: {
-    example: {
-      title: "Example",
+    textToSpeech: {
+      play: "Read this page aloud",
+      pause: "Pause reading",
+      resume: "Resume reading",
+      stop: "Stop reading",
     },
   },
 };

@@ -9,4 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial Quartz community plugin template.
+- Initial release: a toolbar button that reads the current page's article
+  aloud using the browser's native `SpeechSynthesis` API. Play/pause/resume/stop,
+  `rate`/`pitch` options, automatic voice/language via the page's `<html lang>`,
+  and graceful hide when speech synthesis isn't supported.

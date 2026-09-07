@@ -1,15 +1,11 @@
-export { ExampleTransformer } from "./transformer";
-export { ExampleFilter } from "./filter";
-export { ExampleEmitter } from "./emitter";
-export { default as ExampleComponent } from "./components/ExampleComponent";
+import { setOptions } from "./components/options";
 
-export type {
-  ExampleTransformerOptions,
-  ExampleFilterOptions,
-  ExampleEmitterOptions,
-} from "./types";
+export { default as TextToSpeech } from "./components/TextToSpeech";
+export type { TextToSpeechOptions } from "./components/options";
 
-export type { ExampleComponentOptions } from "./components/ExampleComponent";
+export function init(options?: Record<string, unknown>): void {
+  setOptions(options);
+}
 
 // Re-export shared types from @quartz-community/types
 export type {
@@ -17,12 +13,4 @@ export type {
   QuartzComponentProps,
   QuartzComponentConstructor,
   StringResource,
-  QuartzTransformerPlugin,
-  QuartzFilterPlugin,
-  QuartzEmitterPlugin,
-  QuartzPageTypePlugin,
-  QuartzPageTypePluginInstance,
-  PageMatcher,
-  PageGenerator,
-  VirtualPage,
 } from "@quartz-community/types";
