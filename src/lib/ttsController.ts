@@ -38,6 +38,46 @@ export function attachTTS(): (() => void) | undefined {
   let chunks: string[] = [];
   let currentChunkIndex = 0;
 
+  // Voice quality varies wildly by engine, and the browser's own "default"
+  // pick is often the harshest available option (e.g. Linux via espeak-ng
+  // through speech-dispatcher). getVoices() can also return an empty list
+  // until the async "voiceschanged" event fires, so cache whatever's
+  // available and keep refreshing it in the background.
+  let cachedVoices: SpeechSynthesisVoice[] = [];
+  function refreshVoices() {
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) cachedVoices = voices;
+  }
+  refreshVoices();
+  window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+
+  const ROBOTIC_VOICE_NAME = /espeak|pico|festival/i;
+
+  function pickVoice(lang: string | undefined): SpeechSynthesisVoice | undefined {
+    if (cachedVoices.length === 0) return undefined;
+    const wanted = (lang ?? "").toLowerCase();
+    const prefix = wanted.split("-")[0];
+    const matching = wanted
+      ? cachedVoices.filter((v) => {
+          const vLang = v.lang.toLowerCase();
+          return vLang === wanted || vLang === prefix || vLang.startsWith(`${prefix}-`);
+        })
+      : cachedVoices;
+    const pool = matching.length > 0 ? matching : cachedVoices;
+
+    // Network/cloud voices are typically neural and far more natural than
+    // local formant synthesizers, so prefer them; among local voices, avoid
+    // well-known robotic engines by name when a better-sounding one exists.
+    function score(v: SpeechSynthesisVoice): number {
+      let s = 0;
+      if (!v.localService) s += 2;
+      if (!ROBOTIC_VOICE_NAME.test(v.name)) s += 1;
+      if (v.default) s += 1;
+      return s;
+    }
+    return [...pool].sort((a, b) => score(b) - score(a))[0];
+  }
+
   const labels = {
     play: toggleBtn.dataset.labelPlay ?? toggleBtn.getAttribute("aria-label") ?? "Play",
     pause: toggleBtn.dataset.labelPause ?? "Pause",
@@ -66,6 +106,7 @@ export function attachTTS(): (() => void) | undefined {
     const rate = Number(wrapper!.dataset.ttsRate ?? "1") || 1;
     const pitch = Number(wrapper!.dataset.ttsPitch ?? "1") || 1;
     const lang = document.documentElement.lang || undefined;
+    const voice = pickVoice(lang);
 
     chunks.slice(startIndex).forEach((text, relIndex) => {
       const absIndex = startIndex + relIndex;
@@ -73,6 +114,7 @@ export function attachTTS(): (() => void) | undefined {
       utter.rate = rate;
       utter.pitch = pitch;
       if (lang) utter.lang = lang;
+      if (voice) utter.voice = voice;
       utter.addEventListener("start", () => {
         if (mySession === sessionId) currentChunkIndex = absIndex;
       });
@@ -137,6 +179,7 @@ export function attachTTS(): (() => void) | undefined {
     toggleBtn.removeEventListener("click", onToggle);
     stopBtn.removeEventListener("click", onStop);
     document.removeEventListener("keydown", onKeydown);
+    window.speechSynthesis.removeEventListener("voiceschanged", refreshVoices);
   };
 }
 

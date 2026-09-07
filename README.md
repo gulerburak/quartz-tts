@@ -41,6 +41,16 @@ Instead, pausing cancels playback and remembers which block was interrupted;
 resuming re-speaks that block from its start. This trades exact-word resume
 precision for working consistently everywhere.
 
+### Voice selection
+
+The plugin doesn't offer a voice picker (see limitations below), but it also
+doesn't just take whatever the browser calls its "default" — for the page's
+language, it automatically prefers network/cloud voices (usually neural and
+much more natural) over local ones, and avoids well-known robotic local
+engines by name (`espeak`, `pico`, `festival`) when a better-sounding local
+voice is also installed. If only one voice is available for that language,
+this can't do anything about its quality — see the Linux note below.
+
 ## Configuration
 
 | Option  | Type   | Default | Description                                               |
@@ -67,7 +77,8 @@ the URL.
 
 ## Known limitations (v1)
 
-- No voice picker — the browser's default voice for the page's language is used.
+- No voice picker — voice is chosen automatically (see "Voice selection" above),
+  with no way to override it manually.
 - No word/sentence highlighting while reading, and no click-to-seek to a
   specific word.
 - Resuming from pause restarts the current block from its beginning, not the
@@ -79,6 +90,13 @@ the URL.
   `/etc/speech-dispatcher/speechd.conf` for an active `AddModule`/`DefaultModule`
   line, and fully restart the browser after fixing it (it may cache a stale
   connection from before the fix).
+- If `espeak-ng` is the _only_ voice speech-dispatcher exposes, the automatic
+  voice-quality preference above has nothing better to switch to — espeak-ng
+  itself sounds robotic no matter which of its voices is picked. Installing
+  an MBROLA voice for it (`espeak-ng --voices=mb` lists available ones) or a
+  different local engine (e.g. `festival`) can help; browsers on Windows/macOS,
+  or Chrome (which offers Google network voices), typically already expose
+  much more natural-sounding options that this plugin will now prefer on its own.
 
 A voice picker and read-along word highlighting (with click-to-seek) are
 natural v2 additions.

@@ -7,6 +7,7 @@ class FakeUtterance {
   rate = 1;
   pitch = 1;
   lang = "";
+  voice: SpeechSynthesisVoice | null = null;
   private listeners: Record<string, Array<() => void>> = {};
   constructor(text: string) {
     this.text = text;
@@ -22,7 +23,7 @@ class FakeUtterance {
   }
 }
 
-function createFakeSynthesis() {
+function createFakeSynthesis(voices: SpeechSynthesisVoice[] = []) {
   const spoken: FakeUtterance[] = [];
   return {
     spoken,
@@ -30,7 +31,22 @@ function createFakeSynthesis() {
     cancel: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
+    getVoices: vi.fn(() => voices),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
   };
+}
+
+function makeVoice(
+  overrides: Partial<SpeechSynthesisVoice> & { name: string },
+): SpeechSynthesisVoice {
+  return {
+    voiceURI: overrides.name,
+    lang: "en-US",
+    localService: true,
+    default: false,
+    ...overrides,
+  } as SpeechSynthesisVoice;
 }
 
 type FakeSynthesis = ReturnType<typeof createFakeSynthesis>;
@@ -135,6 +151,66 @@ describe("attachTTS", () => {
     last?.dispatch("error"); // ...which fires "error" in real browsers
 
     expect(wrapper().dataset.ttsState).toBe("paused"); // must not flip to idle
+  });
+
+  it("prefers a network/cloud voice over a local one for the same language", () => {
+    const local = makeVoice({
+      name: "eSpeak NG",
+      lang: "en-US",
+      localService: true,
+      default: true,
+    });
+    const cloud = makeVoice({ name: "Google US English", lang: "en-US", localService: false });
+    fakeSynthesis = createFakeSynthesis([local, cloud]);
+    (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+    document.documentElement.lang = "en-US";
+
+    attach();
+    toggle().click();
+
+    expect(fakeSynthesis.spoken[0]?.voice).toBe(cloud);
+  });
+
+  it("avoids a known robotic local engine when a nicer local voice is available", () => {
+    const robotic = makeVoice({ name: "espeak-ng", lang: "en-GB", localService: true });
+    const nicer = makeVoice({ name: "Karen", lang: "en-GB", localService: true });
+    fakeSynthesis = createFakeSynthesis([robotic, nicer]);
+    (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+    document.documentElement.lang = "en-GB";
+
+    attach();
+    toggle().click();
+
+    expect(fakeSynthesis.spoken[0]?.voice).toBe(nicer);
+  });
+
+  it("falls back to any available voice when none match the page language", () => {
+    const other = makeVoice({ name: "Google Deutsch", lang: "de-DE", localService: false });
+    fakeSynthesis = createFakeSynthesis([other]);
+    (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+    document.documentElement.lang = "en-US";
+
+    attach();
+    toggle().click();
+
+    expect(fakeSynthesis.spoken[0]?.voice).toBe(other);
+  });
+
+  it("picks up voices that finish loading asynchronously after attach", () => {
+    fakeSynthesis = createFakeSynthesis([]); // not loaded yet, as in some browsers on first call
+    (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+    document.documentElement.lang = "en-US";
+    attach();
+
+    const voice = makeVoice({ name: "Google US English", lang: "en-US", localService: false });
+    fakeSynthesis.getVoices.mockReturnValue([voice]);
+    const onVoicesChanged = fakeSynthesis.addEventListener.mock.calls.find(
+      ([type]) => type === "voiceschanged",
+    )?.[1] as (() => void) | undefined;
+    onVoicesChanged?.();
+
+    toggle().click();
+    expect(fakeSynthesis.spoken[0]?.voice).toBe(voice);
   });
 
   it("stops and resets to idle via the stop button", () => {
