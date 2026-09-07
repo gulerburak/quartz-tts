@@ -37,6 +37,24 @@ const TextToSpeech: QuartzComponent = ({ displayClass, cfg }: QuartzComponentPro
           <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
         </svg>
       </button>
+      <button
+        class="tts-voice"
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded="false"
+        aria-label={t.voice}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z" />
+        </svg>
+      </button>
+      <div
+        class="tts-voice-menu"
+        role="listbox"
+        aria-label={t.voice}
+        data-automatic-label={t.automaticVoice}
+        hidden
+      ></div>
       <button class="tts-stop" type="button" aria-label={t.stop}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M6 6h12v12H6z" />

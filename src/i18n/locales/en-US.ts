@@ -5,6 +5,8 @@ export default {
       pause: "Pause reading",
       resume: "Resume reading",
       stop: "Stop reading",
+      voice: "Choose voice",
+      automaticVoice: "Automatic (recommended)",
     },
   },
 };

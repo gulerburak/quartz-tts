@@ -8,18 +8,18 @@ class FakeUtterance {
   pitch = 1;
   lang = "";
   voice: SpeechSynthesisVoice | null = null;
-  private listeners: Record<string, Array<() => void>> = {};
+  private listeners: Record<string, Array<(event?: unknown) => void>> = {};
   constructor(text: string) {
     this.text = text;
   }
-  addEventListener(type: string, cb: () => void) {
+  addEventListener(type: string, cb: (event?: unknown) => void) {
     (this.listeners[type] ??= []).push(cb);
   }
-  removeEventListener(type: string, cb: () => void) {
+  removeEventListener(type: string, cb: (event?: unknown) => void) {
     this.listeners[type] = (this.listeners[type] ?? []).filter((fn) => fn !== cb);
   }
-  dispatch(type: string) {
-    (this.listeners[type] ?? []).forEach((cb) => cb());
+  dispatch(type: string, event?: unknown) {
+    (this.listeners[type] ?? []).forEach((cb) => cb(event));
   }
 }
 
@@ -69,16 +69,47 @@ function toggle(): HTMLButtonElement {
 function stopBtn(): HTMLButtonElement {
   return document.querySelector(".tts-stop") as HTMLButtonElement;
 }
+function voiceBtn(): HTMLButtonElement {
+  return document.querySelector(".tts-voice") as HTMLButtonElement;
+}
+function voiceMenu(): HTMLElement {
+  return document.querySelector(".tts-voice-menu") as HTMLElement;
+}
+function voiceOptions(): HTMLButtonElement[] {
+  return Array.from(voiceMenu().querySelectorAll<HTMLButtonElement>(".tts-voice-option"));
+}
 function wrapper(): HTMLElement {
   return document.querySelector(".tts") as HTMLElement;
 }
+function article(): HTMLElement {
+  return document.querySelector("article") as HTMLElement;
+}
+
+// jsdom (at least under this Node/vitest combination) doesn't wire up a real
+// window.localStorage, so stub a minimal in-memory one for these tests —
+// production code always runs in a real browser, which always has one.
+function installFakeLocalStorage() {
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, String(value)),
+      removeItem: (key: string) => store.delete(key),
+      clear: () => store.clear(),
+    },
+  });
+}
 
 beforeEach(() => {
+  installFakeLocalStorage();
   document.documentElement.lang = "";
   document.body.innerHTML = `
     <span class="tts" data-tts-state="idle" data-tts-rate="1" data-tts-pitch="1">
       <button class="tts-toggle" type="button" aria-label="Play"
         data-label-play="Play" data-label-pause="Pause" data-label-resume="Resume"></button>
+      <button class="tts-voice" type="button" aria-label="Choose voice" aria-expanded="false"></button>
+      <div class="tts-voice-menu" data-automatic-label="Automatic" hidden></div>
       <button class="tts-stop" type="button" aria-label="Stop"></button>
     </span>
     <div class="center"><article><p>First.</p><p>Second.</p></article></div>
@@ -93,6 +124,7 @@ beforeEach(() => {
 afterEach(() => {
   activeCleanup?.();
   activeCleanup = undefined;
+  vi.useRealTimers();
   delete (globalThis as { speechSynthesis?: unknown }).speechSynthesis;
   delete (globalThis as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance;
 });
@@ -126,7 +158,7 @@ describe("attachTTS", () => {
     attach();
     toggle().click(); // play -> queues "First." and "Second."
     fakeSynthesis.spoken[0]?.dispatch("start"); // "First." is the one actually playing
-    fakeSynthesis.cancel.mockClear(); // speakFrom() itself cancels defensively on every call
+    fakeSynthesis.cancel.mockClear(); // speakSegments() itself cancels defensively on every call
 
     toggle().click(); // pause
     expect(fakeSynthesis.cancel).toHaveBeenCalledTimes(1);
@@ -263,5 +295,170 @@ describe("attachTTS", () => {
     activeCleanup = undefined;
     toggle().click();
     expect(fakeSynthesis.speak).not.toHaveBeenCalled();
+  });
+
+  it("wraps and unwraps the article's words around a read session", () => {
+    attach();
+    expect(article().querySelectorAll(".tts-word")).toHaveLength(0);
+
+    toggle().click();
+    expect(article().querySelectorAll(".tts-word").length).toBeGreaterThan(0);
+
+    stopBtn().click();
+    expect(article().querySelectorAll(".tts-word")).toHaveLength(0);
+    expect(article().textContent).toBe("First.Second.");
+  });
+
+  describe("word highlighting", () => {
+    beforeEach(() => {
+      article().innerHTML = "<p>One two three.</p>";
+    });
+
+    it("highlights the word reported by a boundary event", () => {
+      attach();
+      toggle().click();
+      const utter = fakeSynthesis.spoken[0];
+      utter?.dispatch("start");
+      // "two" starts at char index 4 in "One two three."
+      utter?.dispatch("boundary", { name: "word", charIndex: 4 });
+
+      expect(document.querySelector(".tts-word-active")?.textContent).toBe("two");
+    });
+
+    it("ignores non-word boundary events (e.g. sentence boundaries)", () => {
+      attach();
+      toggle().click();
+      const utter = fakeSynthesis.spoken[0];
+      utter?.dispatch("start");
+      utter?.dispatch("boundary", { name: "sentence", charIndex: 4 });
+
+      expect(document.querySelector(".tts-word-active")).toBeNull();
+    });
+
+    it("falls back to simulated timing when the engine never fires boundary events", () => {
+      vi.useFakeTimers();
+      attach();
+      toggle().click();
+      fakeSynthesis.spoken[0]?.dispatch("start");
+
+      // Past the internal boundary-support probe window (350ms) with no
+      // boundary event seen — the first word should light up on its own.
+      vi.advanceTimersByTime(360);
+      expect(document.querySelector(".tts-word-active")?.textContent).toBe("One");
+
+      // Past "two"'s estimated duration too (word length based, well under 200ms more).
+      vi.advanceTimersByTime(200);
+      expect(document.querySelector(".tts-word-active")?.textContent).toBe("two");
+    });
+  });
+
+  describe("click-to-seek", () => {
+    beforeEach(() => {
+      article().innerHTML = "<p>One two three.</p>";
+    });
+
+    it("clicking a word jumps playback to start reading from there", () => {
+      attach();
+      toggle().click();
+      const spokenBeforeClick = fakeSynthesis.spoken.length;
+
+      const words = article().querySelectorAll<HTMLElement>(".tts-word");
+      expect(words).toHaveLength(3);
+      words[2]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+      const newTexts = fakeSynthesis.spoken.slice(spokenBeforeClick).map((u) => u.text);
+      expect(newTexts).toEqual(["three."]);
+    });
+
+    it("does nothing when clicking a word while idle (words aren't wrapped yet)", () => {
+      attach();
+      expect(article().querySelectorAll(".tts-word")).toHaveLength(0);
+      article().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      expect(fakeSynthesis.speak).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("voice picker", () => {
+    it("lists voices matching the page language, with Automatic selected by default", () => {
+      const en = makeVoice({ name: "English Voice", lang: "en-US" });
+      const de = makeVoice({ name: "German Voice", lang: "de-DE" });
+      fakeSynthesis = createFakeSynthesis([en, de]);
+      (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+      document.documentElement.lang = "en-US";
+      attach();
+
+      voiceBtn().click();
+      expect(voiceOptions().map((o) => o.textContent)).toEqual([
+        "Automatic",
+        "English Voice (en-US)",
+      ]);
+      expect(voiceOptions()[0]!.getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("selecting a voice overrides the automatic pick and persists it", () => {
+      const local = makeVoice({
+        name: "eSpeak NG",
+        lang: "en-US",
+        localService: true,
+        default: true,
+      });
+      const cloud = makeVoice({ name: "Nice Cloud Voice", lang: "en-US", localService: false });
+      fakeSynthesis = createFakeSynthesis([local, cloud]);
+      (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+      document.documentElement.lang = "en-US";
+      attach();
+
+      voiceBtn().click();
+      const localOption = voiceOptions().find((o) => o.textContent === "eSpeak NG (en-US)");
+      localOption?.click();
+
+      expect(window.localStorage.getItem("quartz-tts:voice")).toBe(local.voiceURI);
+
+      toggle().click();
+      expect(fakeSynthesis.spoken[0]?.voice).toBe(local); // overrides the cloud-preferring heuristic
+    });
+
+    it("switches the voice mid-read when a new one is picked while playing", () => {
+      const local = makeVoice({ name: "eSpeak NG", lang: "en-US", localService: true });
+      const cloud = makeVoice({ name: "Nice Cloud Voice", lang: "en-US", localService: false });
+      fakeSynthesis = createFakeSynthesis([local, cloud]);
+      (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+      document.documentElement.lang = "en-US";
+      attach();
+      toggle().click();
+      expect(fakeSynthesis.spoken[0]?.voice).toBe(cloud);
+
+      voiceBtn().click();
+      const localOption = voiceOptions().find((o) => o.textContent === "eSpeak NG (en-US)");
+      localOption?.click();
+
+      expect(fakeSynthesis.spoken[fakeSynthesis.spoken.length - 1]?.voice).toBe(local);
+      expect(wrapper().dataset.ttsState).toBe("playing");
+    });
+
+    it("Automatic clears a stored override", () => {
+      window.localStorage.setItem("quartz-tts:voice", "some-voice-uri");
+      const cloud = makeVoice({ name: "Nice Cloud Voice", lang: "en-US", localService: false });
+      fakeSynthesis = createFakeSynthesis([cloud]);
+      (globalThis as unknown as { speechSynthesis: FakeSynthesis }).speechSynthesis = fakeSynthesis;
+      document.documentElement.lang = "en-US";
+      attach();
+
+      voiceBtn().click();
+      voiceOptions()[0]?.click(); // "Automatic" is always first
+
+      expect(window.localStorage.getItem("quartz-tts:voice")).toBeNull();
+    });
+
+    it("closes on Escape without stopping playback", () => {
+      attach();
+      toggle().click();
+      voiceBtn().click();
+      expect(voiceMenu().hidden).toBe(false);
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      expect(voiceMenu().hidden).toBe(true);
+      expect(wrapper().dataset.ttsState).toBe("playing");
+    });
   });
 });

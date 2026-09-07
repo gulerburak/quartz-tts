@@ -41,15 +41,30 @@ Instead, pausing cancels playback and remembers which block was interrupted;
 resuming re-speaks that block from its start. This trades exact-word resume
 precision for working consistently everywhere.
 
+### Read-along highlighting and click-to-seek
+
+While reading, the word currently being spoken is highlighted, and clicking
+any other word jumps playback there immediately (works while playing or
+paused). This relies on the browser firing `SpeechSynthesisUtterance`
+`boundary` events; where it doesn't (e.g. Firefox with espeak-ng via
+speech-dispatcher on Linux — the same engine this plugin already works around
+for pause/resume), highlighting instead advances on an estimated per-word
+timer. That's an approximation — it can drift over long sentences — but it
+still tracks progress roughly, and click-to-seek is unaffected either way
+since it doesn't depend on timing.
+
 ### Voice selection
 
-The plugin doesn't offer a voice picker (see limitations below), but it also
-doesn't just take whatever the browser calls its "default" — for the page's
-language, it automatically prefers network/cloud voices (usually neural and
-much more natural) over local ones, and avoids well-known robotic local
-engines by name (`espeak`, `pico`, `festival`) when a better-sounding local
-voice is also installed. If only one voice is available for that language,
-this can't do anything about its quality — see the Linux note below.
+A voice-picker button next to the toggle lists the voices available for the
+page's language, plus an "Automatic" option. Automatic doesn't just take
+whatever the browser calls its "default" — it prefers network/cloud voices
+(usually neural and much more natural) over local ones, and avoids
+well-known robotic local engines by name (`espeak`, `pico`, `festival`) when
+a better-sounding local voice is also installed. Manually picking a voice
+overrides that heuristic and is remembered (via `localStorage`) for next
+time. If only one voice is available for the page's language, there's
+nothing better for either the picker or the heuristic to offer — see the
+Linux note below.
 
 ## Configuration
 
@@ -59,8 +74,9 @@ this can't do anything about its quality — see the Linux note below.
 | `pitch` | number | `1`     | Speech pitch, passed to `SpeechSynthesisUtterance.pitch`. |
 
 The voice's language is taken automatically from the page's `<html lang>`
-attribute (as set by Quartz's `locale` configuration) — there's no separate
-voice option in v1.
+attribute (as set by Quartz's `locale` configuration). The specific voice
+within that language is chosen via the picker described above, not a
+YAML option — it's a per-reader preference, not a per-site one.
 
 ## What gets read
 
@@ -72,17 +88,17 @@ list items, headings, blockquotes, table cells) in document order. It skips:
 - Footnote reference markers and heading permalink icons
 - Mermaid diagrams and other inline SVGs
 
-Images are read using their `alt` text, if present; link text is read without
-the URL.
+Images are read using their `alt` text, if present (spoken in place, but not
+visibly highlighted since there's no rendered text to highlight); link text
+is read without the URL.
 
 ## Known limitations (v1)
 
-- No voice picker — voice is chosen automatically (see "Voice selection" above),
-  with no way to override it manually.
-- No word/sentence highlighting while reading, and no click-to-seek to a
-  specific word.
 - Resuming from pause restarts the current block from its beginning, not the
-  exact word (see above).
+  exact word — clicking a specific word is the way to resume mid-block.
+- Highlighting is exact when the browser fires `boundary` events, and an
+  estimate (based on word length and rate) when it doesn't — see "Read-along
+  highlighting" above. It can drift on long sentences in the estimated case.
 - The button hides itself entirely in browsers without `window.speechSynthesis`.
 - On Linux, `speechSynthesis` depends on `speech-dispatcher` having a working
   output module configured (e.g. `espeak-ng`) — some distros ship it with
@@ -97,9 +113,6 @@ the URL.
   different local engine (e.g. `festival`) can help; browsers on Windows/macOS,
   or Chrome (which offers Google network voices), typically already expose
   much more natural-sounding options that this plugin will now prefer on its own.
-
-A voice picker and read-along word highlighting (with click-to-seek) are
-natural v2 additions.
 
 ## License
 

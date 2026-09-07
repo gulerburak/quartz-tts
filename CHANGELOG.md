@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Read-along word highlighting: the word currently being spoken is
+  highlighted live. Uses native `boundary` events where the engine fires
+  them, falling back to an estimated per-word timer where it doesn't (e.g.
+  Firefox + espeak-ng/speech-dispatcher on Linux).
+- Click-to-seek: click any word (while playing or paused) to jump playback
+  there immediately.
+- A voice-picker button lists the voices available for the page's language
+  plus an "Automatic" option, letting a reader override the automatic
+  voice-quality heuristic. The choice is remembered via `localStorage`.
+
 ### Fixed
 
 - Voice selection now automatically prefers higher-quality voices for the
